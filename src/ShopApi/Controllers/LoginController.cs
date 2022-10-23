@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.IdentityModel.Tokens;
 using ShopApi.Interfaces.Settings;
 using ShopApi.Models;
 using ShopApi.Repositories;
@@ -30,13 +31,39 @@ public class LoginController : ControllerBase
 
         var tokenService = new TokenService(_settingsService);
         var token = tokenService.GenerateToken(user);
+        var refreshToken = TokenService.GenerateRefreshToken();
+        TokenService.SaveRefreshToken(user.Username, refreshToken);
 
         user.Password = "";
 
         return new
         {
             user = user,
-            token = token
+            token = token,
+            refreshToken = refreshToken
         };
+    }
+
+    [HttpPost]
+    [Route("refresh")]
+    public IActionResult Refresh(string token, string refreshToken)
+    {
+        var tokenService = new TokenService(_settingsService);
+        var principal = tokenService.GetPrincipalFromExpiredToken(token);
+        var username = principal.Identity.Name;
+        var savedRefreshToken = TokenService.GetRefreshToken(username);
+        if (savedRefreshToken != refreshToken)
+            throw new SecurityTokenException("Invalid refresh token");
+
+        var newJwt = tokenService.GenerateToken(principal.Claims);
+        var newRefreshToken = TokenService.GenerateRefreshToken();
+        TokenService.DeleteRefreshToken(username, refreshToken);
+        TokenService.SaveRefreshToken(username, newRefreshToken);
+
+        return new ObjectResult(new
+        {
+            token = newJwt,
+            refreshToken = newRefreshToken
+        });
     }
 }
